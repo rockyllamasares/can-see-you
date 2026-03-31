@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "105087304141",
+    "project_id": "kita-kita-3105e",
+    "storage_bucket": "kita-kita-3105e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:105087304141:android:eadf6d4b76f82fa5a74484",
+        "android_client_info": {
+          "package_name": "com.example.kita_kita"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBcGlO1ZZzL8TWDo5Ui4FMA0br-vfVjVSw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
