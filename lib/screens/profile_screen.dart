@@ -173,7 +173,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             // Name Section
             ListTile(
               title: const Text('Display Name', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              subtitle: Text(_name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+              subtitle: Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFFFFFFF))),
               trailing: const Icon(Icons.edit),
               onTap: _updateName,
             ),
