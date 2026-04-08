@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -14,6 +15,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Battery _battery = Battery();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String _name = "User";
   String _userId = "";
@@ -28,6 +30,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadProfileData() async {
+    final user = _auth.currentUser;
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getString('user_id') ?? "";
     final name = prefs.getString('user_name') ?? "User";
@@ -201,9 +204,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () => context.go('/login'),
+//                   onPressed: () => context.go('/login'),
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                   child: const Text('Logout'),
+                  onPressed: () async {
+                    await _auth.signOut();
+                    if (mounted) context.go('/login');
+                  },
                 ),
               ),
             ),

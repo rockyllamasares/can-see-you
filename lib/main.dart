@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:async';
 
 import 'config/theme.dart';
 import 'screens/splash_screen.dart';
@@ -78,6 +80,20 @@ class KitaKitaApp extends StatelessWidget {
 
 final GoRouter _router = GoRouter(
   initialLocation: '/',
+  refreshListenable: GoRouterRefreshStream(FirebaseAuth.instance.authStateChanges()),
+  redirect: (context, state) {
+    final bool loggedIn = FirebaseAuth.instance.currentUser != null;
+    final bool isLoggingIn = state.matchedLocation == '/login';
+    final bool isSplashScreen = state.matchedLocation == '/';
+
+    if (!loggedIn && !isLoggingIn && !isSplashScreen) {
+      return '/login';
+    }
+    if (loggedIn && isLoggingIn) {
+      return '/home';
+    }
+    return null;
+  },
   routes: <RouteBase>[
     GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
     GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
@@ -94,3 +110,21 @@ final GoRouter _router = GoRouter(
     GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
   ],
 );
+
+/// A [Listenable] that notifies listeners whenever a [Stream] emits an event.
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.asBroadcastStream().listen(
+          (dynamic _) => notifyListeners(),
+        );
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -9,22 +10,48 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _auth = FirebaseAuth.instance;
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _isLogin = true;
 
-  void _handleLogin() async {
+  void _handleSubmit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in all fields')),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     
     try {
-      await Future.delayed(const Duration(seconds: 2));
+      if (_isLogin) {
+        await _auth.signInWithEmailAndPassword(email: email, password: password);
+      } else {
+        await _auth.createUserWithEmailAndPassword(email: email, password: password);
+      }
       
       if (mounted) {
         context.go('/home');
       }
+    } on FirebaseAuthException catch (e) {
+      String message = 'Authentication failed';
+      if (e.code == 'user-not-found') message = 'No user found for that email.';
+      else if (e.code == 'wrong-password') message = 'Wrong password provided.';
+      else if (e.code == 'email-already-in-use') message = 'Email is already in use.';
+      else if (e.code == 'weak-password') message = 'Password is too weak.';
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
       }
     } finally {
       if (mounted) {
@@ -60,66 +87,50 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 32),
-                const Text(
-                  'Kita Kita',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Real-time Location Sharing',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: Color(0xFF64748B)),
+                Text(
+                  _isLogin ? 'Welcome Back' : 'Create Account',
+                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
                 ),
                 const SizedBox(height: 48),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: const Text(
-                    'Share your live location with your group members. See where everyone is in real-time with battery status monitoring.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Color(0xFF64748B), height: 1.5),
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: 'Email',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
-                const SizedBox(height: 48),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,
                   height: 56,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleLogin,
+                    onPressed: _isLoading ? null : _handleSubmit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0066CC),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 2,
                     ),
                     child: _isLoading
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(Icons.login, size: 20),
-                              SizedBox(width: 12),
-                              Text('Sign in with Manus', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : Text(_isLogin ? 'Login' : 'Sign Up', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                   ),
                 ),
-                const SizedBox(height: 24),
-                const Text(
-                  'By signing in, you agree to share your location with group members. Your privacy is important to us.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: Color(0xFF94A3B8), height: 1.5),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => setState(() => _isLogin = !_isLogin),
+                  child: Text(_isLogin ? "Don't have an account? Sign Up" : "Already have an account? Login"),
                 ),
-                const SizedBox(height: 32),
               ],
             ),
           ),

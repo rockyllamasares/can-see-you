@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -9,7 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:uuid/uuid.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -20,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   final MapController _mapController = MapController();
   final Battery _battery = Battery();
 
@@ -53,17 +52,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    _userId = prefs.getString('user_id');
-    _userName = prefs.getString('user_name') ?? "User_${Random().nextInt(999)}";
+    final user = _auth.currentUser;
+    if (user != null) {
+      _userId = user.uid;
+      // Gamitin ang email prefix bilang default name kung walang display name
+      _userName = user.displayName ?? user.email?.split('@')[0] ?? "User";
 
-    if (_userId == null) {
-      _userId = const Uuid().v4();
-      await prefs.setString('user_id', _userId!);
-      await prefs.setString('user_name', _userName);
+      await _syncUserToFirestore();
+    } else {
+      // Kung biglang nawala ang auth, balik sa login
+      if (mounted) context.go('/login');
     }
-
-    await _syncUserToFirestore();
   }
 
   Future<void> _syncUserToFirestore() async {
@@ -79,11 +78,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _initBattery() {
-    _battery.batteryLevel.then((level) => setState(() => _batteryLevel = level));
+    _battery.batteryLevel.then((level) {
+      if (mounted) setState(() => _batteryLevel = level);
+    });
     _batteryStream = _battery.onBatteryStateChanged.listen((_) async {
       final level = await _battery.batteryLevel;
-      setState(() => _batteryLevel = level);
-      _syncUserToFirestore();
+      if (mounted) {
+        setState(() => _batteryLevel = level);
+        _syncUserToFirestore();
+      }
     });
   }
 
@@ -98,13 +101,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       permission = await Geolocator.requestPermission();
     }
 
+    if (permission == LocationPermission.deniedForever) return;
+
     await _positionStream?.cancel();
 
     _positionStream = Geolocator.getPositionStream(
       locationSettings: LocationSettings(
         accuracy: isBatterySaver ? LocationAccuracy.medium : LocationAccuracy.high,
         distanceFilter: distFilter,
-        timeLimit: Duration(seconds: freq * 2),
       ),
     ).listen((pos) {
       if (!mounted) return;
@@ -132,6 +136,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         title: const Text('Kita Kita Live'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await _auth.signOut();
+              if (mounted) context.go('/login');
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => context.go('/settings'),
           ),
@@ -142,38 +153,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         : StreamBuilder<QuerySnapshot>(
             stream: _firestore.collection('users').snapshots(),
             builder: (context, snapshot) {
+              if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+
               final users = snapshot.data?.docs ?? [];
 
               return FlutterMap(
                 mapController: _mapController,
-                options: MapOptions(initialCenter: _currentPosition, initialZoom: 15.0),
+                options: MapOptions(
+                  initialCenter: _currentPosition,
+                  initialZoom: 15.0,
+                ),
                 children: [
                   TileLayer(
                     urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    // Idagdag ito para hindi na ma-block ng OpenStreetMap
                     userAgentPackageName: 'com.example.kita_kita',
                   ),
                   MarkerLayer(
                     markers: users.map((doc) {
                       final data = doc.data() as Map<String, dynamic>;
-                      final isMe = data['id'] == _userId;
+                      final id = data['id'] as String?;
+                      if (id == null) return const Marker(point: LatLng(0,0), child: SizedBox());
+
+                      final isMe = id == _userId;
                       final pos = LatLng(data['lat'] ?? 0, data['lng'] ?? 0);
 
                       return Marker(
                         point: pos,
-                        width: 80, height: 80,
+                        width: 100,
+                        height: 100,
                         child: Column(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(2),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(4),
                                 border: Border.all(color: isMe ? Colors.blue : Colors.red, width: 1),
+                                boxShadow: [const BoxShadow(color: Colors.black26, blurRadius: 4)],
                               ),
-                              child: Text("${data['name']} (${data['battery']}%)", style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+                              child: Text(
+                                "${data['name'] ?? 'Unknown'} (${data['battery'] ?? '?' }%)",
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 35),
+                            Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 40),
                           ],
                         ),
                       );
