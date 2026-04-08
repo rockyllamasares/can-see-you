@@ -21,7 +21,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _userId = "";
   int _batteryLevel = 0;
   int _groupCount = 0;
-  String _avatarColor = "0xFF0066CC"; // Default color hex string
+  String _avatarColor = "0xFF0066CC";
 
   @override
   void initState() {
@@ -31,21 +31,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadProfileData() async {
     final user = _auth.currentUser;
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString('user_id') ?? "";
-    final name = prefs.getString('user_name') ?? "User";
+    if (user == null) return;
+
+    final userId = user.uid;
     final level = await _battery.batteryLevel;
     
-    // Get group count from Firestore
+    // Get user data from Firestore
+    final userDoc = await _firestore.collection('users').doc(userId).get();
+    String currentName = user.displayName ?? user.email?.split('@')[0] ?? "User";
+    String currentColor = "0xFF0066CC";
+
+    if (userDoc.exists) {
+      final data = userDoc.data()!;
+      currentName = data['name'] ?? currentName;
+      currentColor = data['avatarColor'] ?? currentColor;
+    }
+
+    // Get live group count from Firestore
     final groupQuery = await _firestore.collection('groups').where('members', arrayContains: userId).get();
 
-    setState(() {
-      _userId = userId;
-      _name = name;
-      _batteryLevel = level;
-      _groupCount = groupQuery.docs.length;
-      _avatarColor = prefs.getString('avatar_color') ?? "0xFF0066CC";
-    });
+    if (mounted) {
+      setState(() {
+        _userId = userId;
+        _name = currentName;
+        _batteryLevel = level;
+        _groupCount = groupQuery.docs.length;
+        _avatarColor = currentColor;
+      });
+    }
   }
 
   Future<void> _updateName() async {
@@ -63,13 +76,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ElevatedButton(
             onPressed: () async {
               if (controller.text.isNotEmpty) {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setString('user_name', controller.text);
+                // Update Firebase Auth Display Name
+                await _auth.currentUser?.updateDisplayName(controller.text);
 
                 // Update Firestore
-                await _firestore.collection('users').doc(_userId).update({
+                await _firestore.collection('users').doc(_userId).set({
                   'name': controller.text,
-                });
+                }, SetOptions(merge: true));
 
                 setState(() => _name = controller.text);
                 Navigator.pop(context);
@@ -105,8 +118,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: colors.map((c) => GestureDetector(
                 onTap: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString('avatar_color', c['hex']!);
+                  await _firestore.collection('users').doc(_userId).set({
+                    'avatarColor': c['hex']!,
+                  }, SetOptions(merge: true));
+
                   setState(() => _avatarColor = c['hex']!);
                   Navigator.pop(context);
                 },
@@ -140,7 +155,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           children: [
             const SizedBox(height: 40),
-            // Avatar with Color Picker
             GestureDetector(
               onTap: _changeAvatarColor,
               child: Stack(
@@ -154,7 +168,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
                     ),
                     child: Center(
-                      child: Text(_name[0].toUpperCase(), style: const TextStyle(fontSize: 50, fontWeight: FontWeight.bold, color: Colors.white)),
+                      child: Text(_name.isNotEmpty ? _name[0].toUpperCase() : "U",
+                        style: const TextStyle(fontSize: 50, fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
                   ),
                   Positioned(
@@ -173,16 +188,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             TextButton(onPressed: _changeAvatarColor, child: const Text('Change Avatar Color')),
 
             const SizedBox(height: 30),
-            // Name Section
             ListTile(
               title: const Text('Display Name', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              subtitle: Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFFFFFFF))),
+              subtitle: Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               trailing: const Icon(Icons.edit),
               onTap: _updateName,
             ),
             const Divider(),
 
-            // Stats Section
             Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
@@ -198,19 +211,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Text('User ID: $_userId', style: const TextStyle(fontSize: 10, color: Colors.grey)),
             const SizedBox(height: 20),
 
-            // Logout
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-//                   onPressed: () => context.go('/login'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                  child: const Text('Logout'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
                   onPressed: () async {
                     await _auth.signOut();
                     if (mounted) context.go('/login');
                   },
+                  child: const Text('Logout'),
                 ),
               ),
             ),

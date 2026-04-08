@@ -1,9 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({Key? key}) : super(key: key);
@@ -13,23 +12,14 @@ class GroupsScreen extends StatefulWidget {
 }
 
 class _GroupsScreenState extends State<GroupsScreen> {
-  int _selectedIndex = 1;
-  String? _userId;
-  String _userName = "User";
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  String? _userId;
 
   @override
   void initState() {
     super.initState();
-    _loadUser();
-  }
-
-  Future<void> _loadUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _userId = prefs.getString('user_id');
-      _userName = prefs.getString('user_name') ?? "User";
-    });
+    _userId = _auth.currentUser?.uid;
   }
 
   String _generateGroupCode() {
@@ -63,11 +53,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   'name': nameController.text,
                   'description': descController.text,
                   'code': groupCode,
-                  'members': [_userId], // Store ID instead of name
+                  'members': [_userId],
                   'ownerId': _userId,
                   'createdAt': FieldValue.serverTimestamp(),
                 });
-                Navigator.pop(context);
+                if (mounted) Navigator.pop(context);
                 _showSnackBar('Group Created! Code: $groupCode', Colors.green);
               }
             },
@@ -96,9 +86,9 @@ class _GroupsScreenState extends State<GroupsScreen> {
               if (query.docs.isNotEmpty) {
                 final docId = query.docs.first.id;
                 await _firestore.collection('groups').doc(docId).update({
-                  'members': FieldValue.arrayUnion([_userId]) // Add ID
+                  'members': FieldValue.arrayUnion([_userId])
                 });
-                Navigator.pop(context);
+                if (mounted) Navigator.pop(context);
                 _showSnackBar('Joined Successfully!', Colors.green);
               } else {
                 _showSnackBar('Invalid Code', Colors.red);
@@ -127,7 +117,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // Show groups where my userId is in the members list
         stream: _firestore.collection('groups').where('members', arrayContains: _userId).snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) return const Center(child: Text('Error loading groups'));
@@ -135,28 +124,64 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
           final groups = snapshot.data?.docs ?? [];
 
-          if (groups.isEmpty) return const Center(child: Text('No groups yet.'));
+          if (groups.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.group_off, size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text('No groups yet.', style: TextStyle(fontSize: 18, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  const Text('Create or join a group to start tracking!', style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 24),
+                  ElevatedButton(onPressed: _showJoinGroupDialog, child: const Text('Join a Group')),
+                ],
+              ),
+            );
+          }
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: groups.length,
             itemBuilder: (context, index) {
-              final group = groups[index].data() as Map<String, dynamic>;
-              final docId = groups[index].id;
-              final members = group['members'] as List;
+              final groupDoc = groups[index];
+              final group = groupDoc.data() as Map<String, dynamic>;
+              final docId = groupDoc.id;
+              final members = group['members'] as List? ?? [];
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.people)),
-                  title: Text(group['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('${members.length} members • Code: ${group['code']}'),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blue.shade100,
+                    child: const Icon(Icons.people, color: Colors.blue),
+                  ),
+                  title: Text(group['name'] ?? 'Unnamed Group', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('${members.length} member${members.length > 1 ? 's' : ''} • Code: ${group['code']}'),
                   trailing: const Icon(Icons.chevron_right),
-                  onLongPress: () async {
-                    await _firestore.collection('groups').doc(docId).update({
-                      'members': FieldValue.arrayRemove([_userId])
-                    });
-                    _showSnackBar('You left the group.', Colors.orange);
+                  onLongPress: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Leave Group?'),
+                        content: Text('Are you sure you want to leave "${group['name']}"?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                          TextButton(
+                            onPressed: () async {
+                              await _firestore.collection('groups').doc(docId).update({
+                                'members': FieldValue.arrayRemove([_userId])
+                              });
+                              if (mounted) Navigator.pop(context);
+                              _showSnackBar('You left the group.', Colors.orange);
+                            },
+                            child: const Text('Leave', style: TextStyle(color: Colors.red)),
+                          ),
+                        ],
+                      ),
+                    );
                   },
                   onTap: () => context.go('/group-details/$docId'),
                 ),
@@ -171,9 +196,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
         label: const Text('Create Group'),
       ),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
+        currentIndex: 1,
         onTap: (index) {
-          setState(() => _selectedIndex = index);
           if (index == 0) context.go('/home');
           if (index == 2) context.go('/profile');
         },
