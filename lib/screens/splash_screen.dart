@@ -91,8 +91,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                         ),
                       ],
                     ),
-                    child: const Center(
-                      child: Text('👁', style: TextStyle(fontSize: 60)),
+                    child: Center(
+                      child: Image.asset('assets/kita_kita.png', width: 80, height: 80,
+                      errorBuilder: (context, error, stackTrace) {
+                            return const Text('👁', style: TextStyle(fontSize: 60));
+                          },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
