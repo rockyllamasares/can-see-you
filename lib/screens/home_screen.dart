@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -23,7 +24,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Battery _battery = Battery();
 
   String? _userId;
-  String? _selectedGroupId; // Idinagdag para sa filtering
+  String? _selectedGroupId;
   String _userName = "User";
   LatLng _currentPosition = const LatLng(14.5995, 120.9842);
   int _batteryLevel = 100;
@@ -156,7 +157,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               Set<String> visibleMemberIds = {_userId!};
 
               if (_selectedGroupId == null) {
-                // Ipakita lahat ng members mula sa lahat ng grupo
                 if (groupsSnapshot.hasData) {
                   for (var doc in groups) {
                     final data = doc.data() as Map<String, dynamic>;
@@ -165,15 +165,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   }
                 }
               } else {
-                // Ipakita lang ang members ng napiling grupo
                 try {
                   final selectedDoc = groups.firstWhere((doc) => doc.id == _selectedGroupId);
                   final data = selectedDoc.data() as Map<String, dynamic>;
                   final members = List<String>.from(data['members'] ?? []);
                   visibleMemberIds.addAll(members);
-                } catch (e) {
-                  // Kung hindi makita ang grupo, i-reset
-                }
+                } catch (e) {}
               }
 
               return Column(
@@ -197,11 +194,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           const SizedBox(width: 8),
                           ...groups.map((doc) {
                             final data = doc.data() as Map<String, dynamic>;
-                            final name = data['name'] ?? 'Group';
                             return Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: ChoiceChip(
-                                label: Text(name),
+                                label: Text(data['name'] ?? 'Group'),
                                 selected: _selectedGroupId == doc.id,
                                 onSelected: (selected) {
                                   setState(() => _selectedGroupId = selected ? doc.id : null);
@@ -219,9 +215,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         if (usersSnapshot.hasError) return Center(child: Text('Error: ${usersSnapshot.error}'));
 
                         final allUsers = usersSnapshot.data?.docs ?? [];
-                        final visibleUsers = allUsers.where((doc) {
-                          return visibleMemberIds.contains(doc.id);
-                        }).toList();
+                        final visibleUsers = allUsers.where((doc) => visibleMemberIds.contains(doc.id)).toList();
 
                         return FlutterMap(
                           mapController: _mapController,
@@ -242,11 +236,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                                 final isMe = id == _userId;
                                 final pos = LatLng(data['lat'] ?? 0, data['lng'] ?? 0);
+                                final String? photoBase64 = data['photoBase64'];
+                                final name = data['name'] ?? 'User';
 
                                 return Marker(
                                   point: pos,
-                                  width: 100,
-                                  height: 100,
+                                  width: 80,
+                                  height: 80,
                                   child: Column(
                                     children: [
                                       Container(
@@ -258,12 +254,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                           boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
                                         ),
                                         child: Text(
-                                          "${data['name'] ?? 'Unknown'} (${data['battery'] ?? '?' }%)",
-                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                          "$name (${data['battery'] ?? '?' }%)",
+                                          style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 40),
+                                      const SizedBox(height: 2),
+                                      Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 50),
+                                          Positioned(
+                                            top: 5,
+                                            child: Container(
+                                              width: 30,
+                                              height: 30,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                border: Border.all(color: Colors.white, width: 2),
+                                                image: photoBase64 != null
+                                                  ? DecorationImage(
+                                                      image: MemoryImage(base64Decode(photoBase64)),
+                                                      fit: BoxFit.cover
+                                                    )
+                                                  : null,
+                                                color: Colors.blue.shade100,
+                                              ),
+                                              child: photoBase64 == null
+                                                ? Center(child: Text(name.isNotEmpty ? name[0].toUpperCase() : "?",
+                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)))
+                                                : null,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ],
                                   ),
                                 );
