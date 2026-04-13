@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Battery _battery = Battery();
 
   String? _userId;
+  String? _selectedGroupId; // Idinagdag para sa filtering
   String _userName = "User";
   LatLng _currentPosition = const LatLng(14.5995, 120.9842);
   int _batteryLevel = 100;
@@ -147,83 +148,133 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: _isLoading || _userId == null
         ? const Center(child: CircularProgressIndicator())
         : StreamBuilder<QuerySnapshot>(
-            // Kunin muna ang mga groups kung saan member ang current user
             stream: _firestore.collection('groups').where('members', arrayContains: _userId).snapshots(),
             builder: (context, groupsSnapshot) {
               if (groupsSnapshot.hasError) return Center(child: Text('Error: ${groupsSnapshot.error}'));
 
-              // Kolektahin ang lahat ng unique user IDs mula sa mga sinalihang grupo
+              final groups = groupsSnapshot.data?.docs ?? [];
               Set<String> visibleMemberIds = {_userId!};
-              if (groupsSnapshot.hasData) {
-                for (var doc in groupsSnapshot.data!.docs) {
-                  final data = doc.data() as Map<String, dynamic>;
+
+              if (_selectedGroupId == null) {
+                // Ipakita lahat ng members mula sa lahat ng grupo
+                if (groupsSnapshot.hasData) {
+                  for (var doc in groups) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final members = List<String>.from(data['members'] ?? []);
+                    visibleMemberIds.addAll(members);
+                  }
+                }
+              } else {
+                // Ipakita lang ang members ng napiling grupo
+                try {
+                  final selectedDoc = groups.firstWhere((doc) => doc.id == _selectedGroupId);
+                  final data = selectedDoc.data() as Map<String, dynamic>;
                   final members = List<String>.from(data['members'] ?? []);
                   visibleMemberIds.addAll(members);
+                } catch (e) {
+                  // Kung hindi makita ang grupo, i-reset
                 }
               }
 
-              return StreamBuilder<QuerySnapshot>(
-                // Ngayon, i-fetch ang users pero i-filter lang ang mga kasama sa visibleMemberIds
-                stream: _firestore.collection('users').snapshots(),
-                builder: (context, usersSnapshot) {
-                  if (usersSnapshot.hasError) return Center(child: Text('Error: ${usersSnapshot.error}'));
-
-                  final allUsers = usersSnapshot.data?.docs ?? [];
-
-                  // I-filter ang users na bahagi ng iyong mga grupo
-                  final visibleUsers = allUsers.where((doc) {
-                    return visibleMemberIds.contains(doc.id);
-                  }).toList();
-
-                  return FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _currentPosition,
-                      initialZoom: 15.0,
+              return Column(
+                children: [
+                  if (groups.isNotEmpty)
+                    Container(
+                      height: 50,
+                      width: double.infinity,
+                      color: Colors.white,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        children: [
+                          ChoiceChip(
+                            label: const Text("All Groups"),
+                            selected: _selectedGroupId == null,
+                            onSelected: (selected) {
+                              setState(() => _selectedGroupId = null);
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          ...groups.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final name = data['name'] ?? 'Group';
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(name),
+                                selected: _selectedGroupId == doc.id,
+                                onSelected: (selected) {
+                                  setState(() => _selectedGroupId = selected ? doc.id : null);
+                                },
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
                     ),
-                    children: [
-                      TileLayer(
-                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.example.kita_kita',
-                      ),
-                      MarkerLayer(
-                        markers: visibleUsers.map((doc) {
-                          final data = doc.data() as Map<String, dynamic>;
-                          final id = data['id'] as String?;
-                          if (id == null) return const Marker(point: LatLng(0,0), child: SizedBox());
+                  Expanded(
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: _firestore.collection('users').snapshots(),
+                      builder: (context, usersSnapshot) {
+                        if (usersSnapshot.hasError) return Center(child: Text('Error: ${usersSnapshot.error}'));
 
-                          final isMe = id == _userId;
-                          final pos = LatLng(data['lat'] ?? 0, data['lng'] ?? 0);
+                        final allUsers = usersSnapshot.data?.docs ?? [];
+                        final visibleUsers = allUsers.where((doc) {
+                          return visibleMemberIds.contains(doc.id);
+                        }).toList();
 
-                          return Marker(
-                            point: pos,
-                            width: 100,
-                            height: 100,
-                            child: Column(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: isMe ? Colors.blue : Colors.red, width: 1),
-                                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                                  ),
-                                  child: Text(
-                                    "${data['name'] ?? 'Unknown'} (${data['battery'] ?? '?' }%)",
-                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 40),
-                              ],
+                        return FlutterMap(
+                          mapController: _mapController,
+                          options: MapOptions(
+                            initialCenter: _currentPosition,
+                            initialZoom: 15.0,
+                          ),
+                          children: [
+                            TileLayer(
+                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                              userAgentPackageName: 'com.example.kita_kita',
                             ),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  );
-                },
+                            MarkerLayer(
+                              markers: visibleUsers.map((doc) {
+                                final data = doc.data() as Map<String, dynamic>;
+                                final id = data['id'] as String?;
+                                if (id == null) return const Marker(point: LatLng(0,0), child: SizedBox());
+
+                                final isMe = id == _userId;
+                                final pos = LatLng(data['lat'] ?? 0, data['lng'] ?? 0);
+
+                                return Marker(
+                                  point: pos,
+                                  width: 100,
+                                  height: 100,
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: isMe ? Colors.blue : Colors.red, width: 1),
+                                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                                        ),
+                                        child: Text(
+                                          "${data['name'] ?? 'Unknown'} (${data['battery'] ?? '?' }%)",
+                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 40),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
               );
             },
           ),
