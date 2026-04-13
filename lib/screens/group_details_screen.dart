@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class GroupDetailsScreen extends StatefulWidget {
   final String groupId;
@@ -16,7 +16,8 @@ class GroupDetailsScreen extends StatefulWidget {
 
 class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  String? _myUserId;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  String? _userId;
   double? _myLat;
   double? _myLng;
 
@@ -27,17 +28,21 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   }
 
   Future<void> _loadMyInfo() async {
-    final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _myUserId = prefs.getString('user_id');
+      _userId = _auth.currentUser?.uid;
     });
 
-    // Get current loc for distance calculation
-    Position pos = await Geolocator.getCurrentPosition();
-    setState(() {
-      _myLat = pos.latitude;
-      _myLng = pos.longitude;
-    });
+    try {
+      Position pos = await Geolocator.getCurrentPosition();
+      if (mounted) {
+        setState(() {
+          _myLat = pos.latitude;
+          _myLng = pos.longitude;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error getting location: $e");
+    }
   }
 
   Color _getBatteryColor(int battery) {
@@ -65,14 +70,14 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
       body: StreamBuilder<DocumentSnapshot>(
         stream: _firestore.collection('groups').doc(widget.groupId).snapshots(),
         builder: (context, groupSnapshot) {
-          if (!groupSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (groupSnapshot.hasError) return const Center(child: Text('Error loading group info'));
+          if (!groupSnapshot.hasData || !groupSnapshot.data!.exists) return const Center(child: CircularProgressIndicator());
 
           final groupData = groupSnapshot.data!.data() as Map<String, dynamic>;
           final List memberIds = groupData['members'] ?? [];
 
           return Column(
             children: [
-              // Group Info Header
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -88,7 +93,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                         IconButton(
                           icon: const Icon(Icons.copy, size: 18),
                           onPressed: () {
-                            Clipboard.setData(ClipboardData(text: groupData['code']));
+                            Clipboard.setData(ClipboardData(text: groupData['code'] ?? ''));
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code copied!')));
                           },
                         ),
@@ -97,13 +102,11 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                   ],
                 ),
               ),
-
-              // Members List
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  // Get details of all users who are members of this group
                   stream: _firestore.collection('users').where('id', whereIn: memberIds.isEmpty ? [''] : memberIds).snapshots(),
                   builder: (context, userSnapshot) {
+                    if (userSnapshot.hasError) return const Center(child: Text('Error loading members'));
                     if (!userSnapshot.hasData) return const Center(child: CircularProgressIndicator());
 
                     final users = userSnapshot.data!.docs;
@@ -114,16 +117,20 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                       itemBuilder: (context, index) {
                         final userData = users[index].data() as Map<String, dynamic>;
                         final int battery = userData['battery'] ?? 0;
-                        final bool isMe = userData['id'] == _myUserId;
+                        final bool isMe = userData['id'] == _userId;
+
+                        // SAFE NAME HANDLING
+                        final String name = userData['name'] ?? "User";
+                        final String initial = name.isNotEmpty ? name[0].toUpperCase() : "?";
 
                         return Card(
                           margin: const EdgeInsets.only(bottom: 12),
                           child: ListTile(
                             leading: CircleAvatar(
                               backgroundColor: isMe ? Colors.blue : Colors.grey[200],
-                              child: Text(userData['name'][0].toUpperCase(), style: TextStyle(color: isMe ? Colors.white : Colors.black)),
+                              child: Text(initial, style: TextStyle(color: isMe ? Colors.white : Colors.black)),
                             ),
-                            title: Text("${userData['name']} ${isMe ? '(You)' : ''}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                            title: Text("$name ${isMe ? '(You)' : ''}", style: const TextStyle(fontWeight: FontWeight.bold)),
                             subtitle: Text("${_calculateDistance(userData['lat'], userData['lng'])} away"),
                             trailing: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -139,18 +146,17 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                   },
                 ),
               ),
-
-              // Bottom Buttons
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
                     onPressed: () async {
+                      if (_userId == null) return;
                       await _firestore.collection('groups').doc(widget.groupId).update({
-                        'members': FieldValue.arrayRemove([_myUserId])
+                        'members': FieldValue.arrayRemove([_userId])
                       });
-                      context.go('/groups');
+                      if (context.mounted) context.go('/groups');
                     },
                     style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
                     child: const Text('Leave Group'),
