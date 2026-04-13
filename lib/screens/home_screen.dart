@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'settings_screen.dart'; // Import ito para sa Navigator
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -91,7 +92,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _initLocation() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // Kunin ang settings mula sa SharedPreferences
     bool isBatterySaver = prefs.getBool('battery_saver') ?? false;
+    int updateFreq = prefs.getInt('update_freq') ?? 10;
+
+    // Mas malaking distance filter kung naka Battery Saver (30 meters vs 10 meters)
     int distFilter = isBatterySaver ? 30 : 10;
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -107,6 +113,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       locationSettings: LocationSettings(
         accuracy: isBatterySaver ? LocationAccuracy.medium : LocationAccuracy.high,
         distanceFilter: distFilter,
+        timeLimit: Duration(seconds: updateFreq * 2),
       ),
     ).listen((pos) {
       if (!mounted) return;
@@ -142,7 +149,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () => context.go('/settings'),
+            onPressed: () async {
+              // INALIS ANG CONST DITO
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+              _initLocation();
+            },
           ),
         ],
       ),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -61,7 +60,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Settings'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/home'),
+          onPressed: () {
+            // Binago mula sa context.go('/home') papuntang Navigator.pop
+            // para gumana ang auto-refresh sa HomeScreen
+            Navigator.of(context).pop();
+          },
         ),
       ),
       body: ListView(

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -118,6 +119,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                         final userData = users[index].data() as Map<String, dynamic>;
                         final int battery = userData['battery'] ?? 0;
                         final bool isMe = userData['id'] == _userId;
+                        final String? photoBase64 = userData['photoBase64'];
 
                         // SAFE NAME HANDLING
                         final String name = userData['name'] ?? "User";
@@ -128,7 +130,12 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                           child: ListTile(
                             leading: CircleAvatar(
                               backgroundColor: isMe ? Colors.blue : Colors.grey[200],
-                              child: Text(initial, style: TextStyle(color: isMe ? Colors.white : Colors.black)),
+                              backgroundImage: photoBase64 != null
+                                ? MemoryImage(base64Decode(photoBase64))
+                                : null,
+                              child: photoBase64 == null
+                                ? Text(initial, style: TextStyle(color: isMe ? Colors.white : Colors.black))
+                                : null,
                             ),
                             title: Text("$name ${isMe ? '(You)' : ''}", style: const TextStyle(fontWeight: FontWeight.bold)),
                             subtitle: Text("${_calculateDistance(userData['lat'], userData['lng'])} away"),
