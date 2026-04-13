@@ -55,12 +55,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final user = _auth.currentUser;
     if (user != null) {
       _userId = user.uid;
-      // Gamitin ang email prefix bilang default name kung walang display name
       _userName = user.displayName ?? user.email?.split('@')[0] ?? "User";
-
       await _syncUserToFirestore();
     } else {
-      // Kung biglang nawala ang auth, balik sa login
       if (mounted) context.go('/login');
     }
   }
@@ -92,7 +89,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _initLocation() async {
     final prefs = await SharedPreferences.getInstance();
-    int freq = prefs.getInt('update_freq') ?? 10;
     bool isBatterySaver = prefs.getBool('battery_saver') ?? false;
     int distFilter = isBatterySaver ? 30 : 10;
 
@@ -148,62 +144,86 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: _isLoading
+      body: _isLoading || _userId == null
         ? const Center(child: CircularProgressIndicator())
         : StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('users').snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+            // Kunin muna ang mga groups kung saan member ang current user
+            stream: _firestore.collection('groups').where('members', arrayContains: _userId).snapshots(),
+            builder: (context, groupsSnapshot) {
+              if (groupsSnapshot.hasError) return Center(child: Text('Error: ${groupsSnapshot.error}'));
 
-              final users = snapshot.data?.docs ?? [];
+              // Kolektahin ang lahat ng unique user IDs mula sa mga sinalihang grupo
+              Set<String> visibleMemberIds = {_userId!};
+              if (groupsSnapshot.hasData) {
+                for (var doc in groupsSnapshot.data!.docs) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final members = List<String>.from(data['members'] ?? []);
+                  visibleMemberIds.addAll(members);
+                }
+              }
 
-              return FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _currentPosition,
-                  initialZoom: 15.0,
-                ),
-                children: [
-                  TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.kita_kita',
-                  ),
-                  MarkerLayer(
-                    markers: users.map((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      final id = data['id'] as String?;
-                      if (id == null) return const Marker(point: LatLng(0,0), child: SizedBox());
+              return StreamBuilder<QuerySnapshot>(
+                // Ngayon, i-fetch ang users pero i-filter lang ang mga kasama sa visibleMemberIds
+                stream: _firestore.collection('users').snapshots(),
+                builder: (context, usersSnapshot) {
+                  if (usersSnapshot.hasError) return Center(child: Text('Error: ${usersSnapshot.error}'));
 
-                      final isMe = id == _userId;
-                      final pos = LatLng(data['lat'] ?? 0, data['lng'] ?? 0);
+                  final allUsers = usersSnapshot.data?.docs ?? [];
 
-                      return Marker(
-                        point: pos,
-                        width: 100,
-                        height: 100,
-                        child: Column(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: isMe ? Colors.blue : Colors.red, width: 1),
-                                boxShadow: [const BoxShadow(color: Colors.black26, blurRadius: 4)],
-                              ),
-                              child: Text(
-                                "${data['name'] ?? 'Unknown'} (${data['battery'] ?? '?' }%)",
-                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                  // I-filter ang users na bahagi ng iyong mga grupo
+                  final visibleUsers = allUsers.where((doc) {
+                    return visibleMemberIds.contains(doc.id);
+                  }).toList();
+
+                  return FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _currentPosition,
+                      initialZoom: 15.0,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.example.kita_kita',
+                      ),
+                      MarkerLayer(
+                        markers: visibleUsers.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          final id = data['id'] as String?;
+                          if (id == null) return const Marker(point: LatLng(0,0), child: SizedBox());
+
+                          final isMe = id == _userId;
+                          final pos = LatLng(data['lat'] ?? 0, data['lng'] ?? 0);
+
+                          return Marker(
+                            point: pos,
+                            width: 100,
+                            height: 100,
+                            child: Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: isMe ? Colors.blue : Colors.red, width: 1),
+                                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                                  ),
+                                  child: Text(
+                                    "${data['name'] ?? 'Unknown'} (${data['battery'] ?? '?' }%)",
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 40),
+                              ],
                             ),
-                            Icon(Icons.location_on, color: isMe ? Colors.blue : Colors.red, size: 40),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  );
+                },
               );
             },
           ),
