@@ -46,6 +46,8 @@ dependencies:
   
   # Notifications
   flutter_local_notifications: ^17.0.0
+  audioplayers: ^6.1.0
+  vibration: ^2.0.1
   
   # Utilities
   intl: ^0.19.0
@@ -62,4 +64,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-  - assets/kita_kita.png
+    - assets/kita_kita.png
+    - assets/alarm.mp3
