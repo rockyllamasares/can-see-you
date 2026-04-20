@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/sos_service.dart';
 import 'settings_screen.dart'; // Import ito para sa Navigator
 
 class HomeScreen extends StatefulWidget {
@@ -30,9 +31,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   LatLng _currentPosition = const LatLng(14.5995, 120.9842);
   int _batteryLevel = 100;
   bool _isLoading = true;
+  bool _isSOSActive = false;
 
   StreamSubscription<Position>? _positionStream;
   StreamSubscription<BatteryState>? _batteryStream;
+  StreamSubscription<QuerySnapshot>? _sosListener;
 
   @override
   void initState() {
@@ -52,6 +55,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _initUser();
     await _initLocation();
     _initBattery();
+    _initSOSListener();
+  }
+
+  void _initSOSListener() {
+    if (_userId == null) return;
+
+    // Listen to all users. In a real app, you might want to filter by group members only.
+    _sosListener = _firestore.collection('users').snapshots().listen((snapshot) {
+      bool anyoneElseInSOS = false;
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.modified || change.type == DocumentChangeType.added) {
+          final data = change.doc.data() as Map<String, dynamic>;
+          final id = change.doc.id;
+          final isSOS = data['isSOS'] ?? false;
+
+          if (isSOS && id != _userId) {
+            anyoneElseInSOS = true;
+            _showSOSAlert(data['name'] ?? 'Someone');
+          }
+        }
+      }
+
+      if (anyoneElseInSOS) {
+        SOSService().startLocalAlarm();
+      } else {
+        // If no one is in SOS anymore (you might want more complex logic here)
+        // SOSService().stopLocalAlarm();
+      }
+    });
+  }
+
+  void _showSOSAlert(String name) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("🚨 SOS: $name needs help!"),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 10),
+        action: SnackBarAction(
+          label: "STOP ALARM",
+          textColor: Colors.white,
+          onPressed: () {
+            SOSService().stopLocalAlarm();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _initUser() async {
@@ -130,6 +179,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _positionStream?.cancel();
     _batteryStream?.cancel();
+    _sosListener?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -315,6 +365,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               );
             },
           ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          setState(() {
+            _isSOSActive = !_isSOSActive;
+          });
+          if (_isSOSActive) {
+            await SOSService().triggerSOS();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("SOS Activated! Others are being notified.")),
+            );
+          } else {
+            await SOSService().stopSOS();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("SOS Deactivated.")),
+            );
+          }
+        },
+        label: Text(_isSOSActive ? "STOP SOS" : "SOS"),
+        icon: Icon(_isSOSActive ? Icons.stop : Icons.warning),
+        backgroundColor: _isSOSActive ? Colors.black : Colors.red,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: 0,
         onTap: (i) {
