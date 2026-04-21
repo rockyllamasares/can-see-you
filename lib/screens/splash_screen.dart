@@ -106,7 +106,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'I see you',
+                    'Location Sharing',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Color(0xFF64748B)),
                   ),
                   const SizedBox(height: 48),
