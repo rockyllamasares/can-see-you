@@ -155,6 +155,13 @@ flutter logs
 flutter test
 ```
 
+### Change App Icon
+If you update the logo in `assets/kita_kita.png`, run:
+```bash
+flutter pub get
+flutter pub run flutter_launcher_icons
+```
+
 ## Troubleshooting
 
 ### "Flutter SDK not found"

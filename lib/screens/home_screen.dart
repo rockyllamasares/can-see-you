@@ -36,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<Position>? _positionStream;
   StreamSubscription<BatteryState>? _batteryStream;
   StreamSubscription<QuerySnapshot>? _sosListener;
+  Set<String> _myGroupMembers = {};
 
   @override
   void initState() {
@@ -61,16 +62,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _initSOSListener() {
     if (_userId == null) return;
 
-    // Listen to all users. In a real app, you might want to filter by group members only.
+    // Listen to all users.
     _sosListener = _firestore.collection('users').snapshots().listen((snapshot) {
       bool anyoneElseInSOS = false;
+      
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.modified || change.type == DocumentChangeType.added) {
           final data = change.doc.data() as Map<String, dynamic>;
           final id = change.doc.id;
           final isSOS = data['isSOS'] ?? false;
 
-          if (isSOS && id != _userId) {
+          // Check if the user is in my group members list AND is not me
+          if (isSOS && id != _userId && _myGroupMembers.contains(id)) {
             anyoneElseInSOS = true;
             _showSOSAlert(data['name'] ?? 'Someone');
           }
@@ -79,9 +82,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       if (anyoneElseInSOS) {
         SOSService().startLocalAlarm();
-      } else {
-        // If no one is in SOS anymore (you might want more complex logic here)
-        // SOSService().stopLocalAlarm();
       }
     });
   }
@@ -218,15 +218,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
               final groups = groupsSnapshot.data?.docs ?? [];
               Set<String> visibleMemberIds = {_userId!};
+              
+              // Update global members list for SOS filtering
+              Set<String> allMyGroupMembers = {};
+              for (var doc in groups) {
+                final data = doc.data() as Map<String, dynamic>;
+                final members = List<String>.from(data['members'] ?? []);
+                allMyGroupMembers.addAll(members);
+              }
+              _myGroupMembers = allMyGroupMembers;
 
               if (_selectedGroupId == null) {
-                if (groupsSnapshot.hasData) {
-                  for (var doc in groups) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    final members = List<String>.from(data['members'] ?? []);
-                    visibleMemberIds.addAll(members);
-                  }
-                }
+                visibleMemberIds.addAll(allMyGroupMembers);
               } else {
                 try {
                   final selectedDoc = groups.firstWhere((doc) => doc.id == _selectedGroupId);
